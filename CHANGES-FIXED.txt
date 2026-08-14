@@ -1,0 +1,26 @@
+Crop Mood EOS M slim GUI - bugfixes-v7 + fixes
+================================================
+
+Applied on top of Crop-mood-eosm-slim-gui-main-bugfixes-v7:
+
+1. Fix raw mode
+   - crop_raw_mode_available() always returns 1 so the menu no longer
+     incorrectly shows "OFF (RAW only)".
+
+2. Remove raw-to-H.264 mode
+   - crop_rec_disable_for_h264() is a no-op (the special slim_h264_mode
+     path is unreliable with Crop Mood firmware).
+   - Notify text: "Changing RAW - please wait".
+
+3. Separate settings for aperture / arrows (photo vs video)
+   - New configs: crop.arrows_U_D_photo, crop.arrows_L_R_photo
+   - Key handlers select photo or video assignment via is_movie_mode().
+   - Settings Tab entries (always available, including photo mode):
+       * Up/Down Button (Video)
+       * Left/Right Button (Video)
+       * Up/Down Button (Photo)
+       * Left/Right Button (Photo)
+     Choices: OFF / Shutter / Aperture / ISO
+
+Build as usual for this tree (e.g. make EOSM / your normal target).
+Only modules/crop_rec/crop_rec.c was modified.
