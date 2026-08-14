@@ -1,35 +1,12 @@
-Crop Mood EOS M slim GUI - bugfixes-v7 + fixes + GitHub Actions build
-=====================================================================
+Crop Mood EOS M slim - FIXED v2
 
-This is a complete source tree you can push to GitHub and compile into a
-camera-ready Magic Lantern zip via GitHub Actions.
+Video:
+- Reverted separate Photo/Video Up-Down/Left-Right Settings entries.
+- LV touch WB + Aperture via bar touch editor (core lvinfo).
+- Removed slim_h264_mode path entirely from crop_rec.
+- Playback: touch no longer blocked outside LiveView.
 
-How to get a build for the camera
----------------------------------
-1. Create a new GitHub repository.
-2. Unzip this archive. The folder Crop-mood-eosm-slim-gui-main/ is the repo root.
-   Push its *contents* (Makefile, platform/, modules/, .github/, ...) to the
-   default branch (main or master). Do NOT push the outer folder name as an
-   extra directory level.
-3. Go to the Actions tab -> "Build EOS M" -> Run workflow (or just push a commit).
-4. When the job finishes, download the artifacts:
-     - magiclantern-eosm-zip  -> this is the install package for the camera
-       Unzip it onto a FAT32 card and install like any other ML / Crop Mood build.
-     - autoexec.bin           -> also included inside the zip
+Photo:
+- White Balance bar touch now works (was blocked in photo mode).
 
-Local build (optional)
-----------------------
-Requires arm-none-eabi-gcc (gcc-arm-embedded 5.4 recommended):
-
-  make -C platform/EOSM.202 zip
-
-Code changes vs original bugfixes-v7
-------------------------------------
-1. Raw mode menu fixed (crop_raw_mode_available always returns true)
-2. Raw-to-H.264 special mode removed (crop_rec_disable_for_h264 is a no-op)
-3. Separate photo vs video Up/Down and Left/Right button settings in Settings tab
-   (new configs crop.arrows_U_D_photo / crop.arrows_L_R_photo)
-
-Only modules/crop_rec/crop_rec.c was modified.
-.github/workflows/build-eosm.yml was added for CI builds that produce
-platform/EOSM.202/magiclantern-*.zip ready for the camera.
+Build: Actions -> Build EOS M -> Run workflow. Artifact: magiclantern-eosm-zip

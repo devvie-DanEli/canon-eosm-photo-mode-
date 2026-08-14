@@ -834,14 +834,14 @@ enum lvinfo_touch_field lvinfo_touch_field_at(int x, int y)
             else if (!strcmp(name, "Bitdepth info")) candidate = LVINFO_TOUCH_BIT_DEPTH;
 
             /*
-             * Photo Live View intentionally exposes only ISO, shutter and
-             * aperture.  Movie mode keeps the existing crop/FPS/bit-depth
-             * touch controls.
+             * Photo Live View: ISO, shutter, aperture, and white balance.
+             * Movie mode also keeps crop / FPS / bit-depth touch controls.
              */
             if (!is_movie_mode() &&
                 candidate != LVINFO_TOUCH_APERTURE &&
                 candidate != LVINFO_TOUCH_SHUTTER &&
-                candidate != LVINFO_TOUCH_ISO)
+                candidate != LVINFO_TOUCH_ISO &&
+                candidate != LVINFO_TOUCH_WB)
                 continue;
 
             /* Expanded targets may overlap; the closest visible field wins. */

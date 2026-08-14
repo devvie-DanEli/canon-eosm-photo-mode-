@@ -65,7 +65,6 @@ static CONFIG_INT("crop.shutter_range", shutter_range, 0);
 static CONFIG_INT("crop.fix_dual_iso_flicker", fix_dual_iso_flicker, 1);
 static int (*raw_video_is_enabled)(void) = MODULE_FUNCTION(raw_video_is_enabled);
 static int (*raw_video_transition_busy)(void) = MODULE_FUNCTION(raw_video_transition_busy);
-static volatile int slim_h264_mode = 0;
 #ifdef CONFIG_EOSM
 static volatile int slim_raw_transition_wait = 0;
 #endif
@@ -138,12 +137,9 @@ CONFIG_INT("crop.button_SET",       SET_button, 1);
 static CONFIG_INT("crop.button_H-Shutter", Half_Shutter, 2);
 CONFIG_INT("crop.button_INFO",      INFO_button, 0);
 CONFIG_INT("crop.shutter_zoom", Shutter_zoom, 0); /* EOS M slim: 0=OFF, 1=hold x10, 2=sticky x10 */
-CONFIG_INT("crop.arrows_U_D",       Arrows_U_D, 3); /* ISO (video) */
+CONFIG_INT("crop.arrows_U_D",       Arrows_U_D, 3); /* ISO */
 CONFIG_INT("crop.more_hacks",       more_hacks, 1);
-static CONFIG_INT("crop.arrows_L_R",       Arrows_L_R, 2); /* Aperture (video) */
-/* Separate button assignments for photo mode (stills / CR2) */
-static CONFIG_INT("crop.arrows_U_D_photo", Arrows_U_D_photo, 3); /* ISO */
-static CONFIG_INT("crop.arrows_L_R_photo", Arrows_L_R_photo, 2); /* Aperture */
+static CONFIG_INT("crop.arrows_L_R",       Arrows_L_R, 2); /* Aperture */
 static CONFIG_INT("crop.button_map_v",     button_map_v, 0); /* remap old configs once */
 
 enum crop_preset {
@@ -724,15 +720,13 @@ static unsigned int photo_keypress_cbr(unsigned int key)
         {
             /* U/D and L/R: Shutter / Aperture / ISO (Settings → Up/Down / Left/Right Button)
              * Separate assignments for photo mode vs video mode. */
-            int arrows_ud = is_movie_mode() ? Arrows_U_D : Arrows_U_D_photo;
-            int arrows_lr = is_movie_mode() ? Arrows_L_R : Arrows_L_R_photo;
-            if (key == MODULE_KEY_PRESS_UP && slim_handle_arrow_adjust(arrows_ud, 1))
+            if (key == MODULE_KEY_PRESS_UP && slim_handle_arrow_adjust(Arrows_U_D, 1))
                 return 0;
-            if (key == MODULE_KEY_PRESS_DOWN && slim_handle_arrow_adjust(arrows_ud, -1))
+            if (key == MODULE_KEY_PRESS_DOWN && slim_handle_arrow_adjust(Arrows_U_D, -1))
                 return 0;
-            if (key == MODULE_KEY_PRESS_RIGHT && slim_handle_arrow_adjust(arrows_lr, 1))
+            if (key == MODULE_KEY_PRESS_RIGHT && slim_handle_arrow_adjust(Arrows_L_R, 1))
                 return 0;
-            if (key == MODULE_KEY_PRESS_LEFT && slim_handle_arrow_adjust(arrows_lr, -1))
+            if (key == MODULE_KEY_PRESS_LEFT && slim_handle_arrow_adjust(Arrows_L_R, -1))
                 return 0;
 
             /* Legacy SET / non-EOSM INFO ISO/aperture shortcuts (unchanged mappings) */
@@ -5070,7 +5064,6 @@ static void uninstall_patches()
 static void update_patch(void);
 
 /* RAW-to-H.264 special mode removed for Crop Mood firmware.
- * The dedicated slim_h264_mode path is unreliable on this build.
  * When RAW is turned off, update_patch() already uninstalls hooks
  * via the !raw_lv_is_enabled() check. Keep the exported symbol so
  * mlv_lite still links cleanly. */
@@ -5084,13 +5077,9 @@ void crop_rec_enable_for_raw(void)
 {
     if (!is_EOSM)
         return;
-    slim_h264_mode = 0;
-#ifdef CONFIG_EOSM
-    /* RAW LV is now genuinely enabled.  Re-enter the existing EOS M LV guard
-     * instead of installing crop hooks directly in the RAW toggle path. */
+    /* Re-enter the EOS M LV guard after RAW LiveView is enabled. */
     slim_raw_transition_wait = 1;
     eosm_lv_guard_request();
-#endif
     crop_set_dirty(10);
     lens_display_set_dirty();
     redraw_after(150);
@@ -5105,25 +5094,18 @@ static void update_patch()
      * and do not install them until the RAW LiveView stream is actually
      * enabled.  This avoids crossing the MLV RAW teardown/startup boundary
      * with crop_rec's memory hooks, which can crash the next record start. */
-    if (is_EOSM && (slim_h264_mode || !raw_lv_is_enabled()))
+    if (is_EOSM && !raw_lv_is_enabled())
     {
         if (patch_active)
         {
             uninstall_patches();
             patch_active = 0;
         }
+        /* RAW LiveView off: restore Canon GUI path. */
         extern int kill_canon_gui_mode;
-        if (slim_h264_mode)
-        {
-            /* H.264 is the camera's normal movie recording path.  Do not
-             * leave the Canon front-buffer suppression from RAW/crop mode
-             * active here: Canon must be allowed to restore its normal movie
-             * display/recording path, while ML Global Draw continues to paint
-             * the ML overlay on top. */
-            kill_canon_gui_mode = 0;
-            if (canon_gui_front_buffer_disabled())
-                canon_gui_enable_front_buffer(0);
-        }
+        kill_canon_gui_mode = 0;
+        if (canon_gui_front_buffer_disabled())
+            canon_gui_enable_front_buffer(0);
         crop_preset = 0;
         return;
     }
@@ -5189,9 +5171,6 @@ static void update_patch()
                  * otherwise all of the ML info fields disappear immediately
                  * after RAW -> H.264.
                  */
-#ifdef CONFIG_EOSM
-                if (!(is_EOSM && slim_h264_mode))
-#endif
                 {
                     kill_canon_gui_mode = 0;
                     if (canon_gui_front_buffer_disabled())
@@ -5788,44 +5767,14 @@ static struct menu_entry slim_info_button_menu[] = {
         .help2     = "Last settings opens the last changed ML setting, like a LiveView screen tap.",
     },
     {
-        .name      = "Up/Down Button (Video)",
+        .name      = "Up/Down Button",
         .priv      = &Arrows_U_D,
         .max       = 3,
         .choices   = CHOICES("OFF", "Shutter", "Aperture", "ISO"),
         .edit_mode = EM_INLINE_ADJUST,
         .icon_type = IT_DICE,
-        .help      = "What UP/DOWN adjust on the movie LiveView screen (not while recording).",
-        .help2     = "Shutter: faster/slower. Aperture: open/close. ISO: up/down. Video mode only.",
-    },
-    {
-        .name      = "Left/Right Button (Video)",
-        .priv      = &Arrows_L_R,
-        .max       = 3,
-        .choices   = CHOICES("OFF", "Shutter", "Aperture", "ISO"),
-        .edit_mode = EM_INLINE_ADJUST,
-        .icon_type = IT_DICE,
-        .help      = "What LEFT/RIGHT adjust on the movie LiveView screen (not while recording).",
-        .help2     = "Shutter: faster/slower. Aperture: open/close. ISO: up/down. Video mode only.",
-    },
-    {
-        .name      = "Up/Down Button (Photo)",
-        .priv      = &Arrows_U_D_photo,
-        .max       = 3,
-        .choices   = CHOICES("OFF", "Shutter", "Aperture", "ISO"),
-        .edit_mode = EM_INLINE_ADJUST,
-        .icon_type = IT_DICE,
-        .help      = "What UP/DOWN adjust in photo / stills LiveView (CR2).",
-        .help2     = "Separate from video. Shutter / Aperture / ISO. Works in photo mode.",
-    },
-    {
-        .name      = "Left/Right Button (Photo)",
-        .priv      = &Arrows_L_R_photo,
-        .max       = 3,
-        .choices   = CHOICES("OFF", "Shutter", "Aperture", "ISO"),
-        .edit_mode = EM_INLINE_ADJUST,
-        .icon_type = IT_DICE,
-        .help      = "What LEFT/RIGHT adjust in photo / stills LiveView (CR2).",
-        .help2     = "Separate from video. Shutter / Aperture / ISO. Works in photo mode.",
+        .help      = "What UP/DOWN adjust on the LiveView screen (not while recording).",
+        .help2     = "Shutter: faster/slower. Aperture: open/close. ISO: up/down.",
     },
     {
         .name      = "Shutter zoom",
@@ -7909,7 +7858,8 @@ static unsigned int crop_rec_keypress_cbr(unsigned int key)
     /* EOS M Live View taps are routed by gui-common.c (Quick Panel, grid,
      * and Last Settings). Do not let the legacy crop.tapdisp shortcuts race
      * that router during boot or Canon INFO transitions. */
-    if (is_EOSM && key == MODULE_KEY_TOUCH_1_FINGER)
+    /* Only route LV taps away from Canon; never block playback navigation. */
+    if (is_EOSM && lv && key == MODULE_KEY_TOUCH_1_FINGER)
         return 1;
 
     /* Recording: touch is blocked in gui-common (idle LV touch is allowed). */
@@ -8070,10 +8020,9 @@ static unsigned int crop_rec_keypress_cbr(unsigned int key)
             /* EOS M idle movie LV + ML overlays: Up/Down Settings remaps only. */
             if (is_EOSM && !RECORDING && lv_dispsize != 10 && lv_disp_mode == 0)
             {
-                int arrows_ud = is_movie_mode() ? Arrows_U_D : Arrows_U_D_photo;
-                if (key == MODULE_KEY_PRESS_UP && slim_handle_arrow_adjust(arrows_ud, 1))
+                if (key == MODULE_KEY_PRESS_UP && slim_handle_arrow_adjust(Arrows_U_D, 1))
                     return 0;
-                if (key == MODULE_KEY_PRESS_DOWN && slim_handle_arrow_adjust(arrows_ud, -1))
+                if (key == MODULE_KEY_PRESS_DOWN && slim_handle_arrow_adjust(Arrows_U_D, -1))
                     return 0;
             }
 
@@ -8082,16 +8031,14 @@ static unsigned int crop_rec_keypress_cbr(unsigned int key)
                 /* Non-EOSM (or during REC): legacy U/D L/R shortcuts */
                 if (!is_EOSM || RECORDING)
                 {
-                    int arrows_ud = is_movie_mode() ? Arrows_U_D : Arrows_U_D_photo;
-                    int arrows_lr = is_movie_mode() ? Arrows_L_R : Arrows_L_R_photo;
-                    if (key == MODULE_KEY_PRESS_UP && slim_handle_arrow_adjust(arrows_ud, 1))
-                        return 0;
-                    if (key == MODULE_KEY_PRESS_DOWN && slim_handle_arrow_adjust(arrows_ud, -1))
-                        return 0;
-                    if (key == MODULE_KEY_PRESS_RIGHT && slim_handle_arrow_adjust(arrows_lr, 1))
-                        return 0;
-                    if (key == MODULE_KEY_PRESS_LEFT && slim_handle_arrow_adjust(arrows_lr, -1))
-                        return 0;
+            if (key == MODULE_KEY_PRESS_UP && slim_handle_arrow_adjust(Arrows_U_D, 1))
+                return 0;
+            if (key == MODULE_KEY_PRESS_DOWN && slim_handle_arrow_adjust(Arrows_U_D, -1))
+                return 0;
+            if (key == MODULE_KEY_PRESS_RIGHT && slim_handle_arrow_adjust(Arrows_L_R, 1))
+                return 0;
+            if (key == MODULE_KEY_PRESS_LEFT && slim_handle_arrow_adjust(Arrows_L_R, -1))
+                return 0;
                 }
 
                 if (((key == MODULE_KEY_INFO)       && !is_EOSM && INFO_button == 2) ||
