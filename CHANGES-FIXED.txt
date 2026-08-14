@@ -1,12 +1,17 @@
-Crop Mood EOS M slim - FIXED v2
+Crop Mood EOS M slim - FIXED v3
 
-Video:
-- Reverted separate Photo/Video Up-Down/Left-Right Settings entries.
-- LV touch WB + Aperture via bar touch editor (core lvinfo).
-- Removed slim_h264_mode path entirely from crop_rec.
-- Playback: touch no longer blocked outside LiveView.
+1) RAW LiveView toggle removed
+   - Tapping Pic Quality / RAW on the LV bar no longer switches to H.264.
+   - raw_video_touch_hit() is a no-op (Crop Mood stays RAW-only).
 
-Photo:
-- White Balance bar touch now works (was blocked in photo mode).
+2) Playback navigation (video / PLAY)
+   Root cause: EOS M LV transition guard (eosm_lv_guard_busy) stayed busy when
+   leaving LiveView while the mode dial was still on Movie + Crop Mood on.
+   gui-common then blocked ALL touch because transition_busy was true,
+   including Canon PLAY and mlv_play navigation.
 
-Build: Actions -> Build EOS M -> Run workflow. Artifact: magiclantern-eosm-zip
+   Fixes:
+   - crop_rec: clear the LV guard when !lv (PLAY/QR/still UI).
+   - gui-common: only block touch during transition while still in LiveView.
+
+Also includes FIXED v2 (WB photo touch, no slim_h264_mode, single Up/Down settings).

@@ -403,12 +403,11 @@ static void slim_touch_register_tap(void)
 
 static int handle_slim_rec_touch_block(struct event * event)
 {
-    if (slim_crop_rec_transition_busy())
+    if (slim_crop_rec_transition_busy() && lv)
     {
         /* The crop module is validating Canon's newly-created LV buffers.
-         * Let no touch/dial shortcut alter another property in this window.
-         * Image-area taps are retained so a deliberate boot-time double tap
-         * remains a double tap once the guard has finished. */
+         * Only block while still in LiveView. In PLAY/QR the guard must not
+         * steal touch navigation from Canon or mlv_play. */
         if (event->param == BGMT_TOUCH_1_FINGER)
         {
             int x, y;

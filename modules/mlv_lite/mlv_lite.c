@@ -2173,23 +2173,12 @@ int raw_video_is_enabled(void)
 
 int raw_video_touch_hit(int x, int y)
 {
-    extern int lvinfo_touch_item_hit(const char *name, int x, int y);
-
-    if (!lv || !is_movie_mode() || RECORDING || gui_menu_shown())
-        return 0;
-    if (!lvinfo_touch_item_hit("Pic Quality", x, y))
-        return 0;
-
-    raw_video_enabled = !raw_video_enabled;
-
-    /* Do not tear down or install RAW/crop hardware from the GUI task.
-     * raw_rec_polling_cbr() runs in ShootTask and performs the RAW LV request
-     * transition first; Crop Mood follows only after raw_lv_is_enabled() has
-     * reached the requested state. */
-    lens_display_set_dirty();
-    redraw_after(300);
-    redraw();
-    return 1;
+    /* Crop Mood is RAW-only: do not allow LiveView "Pic Quality" taps to
+     * toggle RAW off into H.264. Keep the hit silent so the bar does not
+     * open an unrelated editor either. */
+    (void)x;
+    (void)y;
+    return 0;
 }
 
 #ifdef CONFIG_EOSM

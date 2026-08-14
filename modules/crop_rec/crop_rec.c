@@ -7387,7 +7387,15 @@ static int eosm_lv_guard_step(int menu_shown, int mlv_busy)
         return 0;
     }
 
-    if (!lv || menu_shown || RECORDING_RAW || mlv_busy)
+    /* Leaving LiveView (Canon PLAY / QR / still photo UI): release the guard
+     * so touch and navigation are not blocked by a stuck transition. */
+    if (!lv)
+    {
+        eosm_lv_guard_clear();
+        return 0;
+    }
+
+    if (menu_shown || RECORDING_RAW || mlv_busy)
         return 1;
 
     /* x10 is Canon's focusing view, not the custom x5 preview.  Do not hold
