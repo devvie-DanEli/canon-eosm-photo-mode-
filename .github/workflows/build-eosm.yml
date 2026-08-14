@@ -4,7 +4,7 @@ run-name: Build EOS M
 on:
   push:
     branches:
-      - eosm-slim-gui
+      - main
 
 jobs:
   build:
