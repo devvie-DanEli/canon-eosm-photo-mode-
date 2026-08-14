@@ -8,7 +8,6 @@
 #define _DONT_INCLUDE_PROPVALUES_
 #include "property.h"
 #include "shoot.h"
-#include "lens.h"
 #include "zebra.h"
 #include <platform/state-object.h>
 
@@ -126,20 +125,10 @@ volatile PROP_INT(PROP_SHOOTING_MODE, shooting_mode_custom);
 
 PROP_HANDLER(PROP_SHOOTING_MODE_2)
 {
-    /* NOTE: on EOS M this property does not carry a dedicated Movie
-     * value (CONFIG_NO_DEDICATED_MOVIE_MODE is set - see
-     * PROP_HANDLER(PROP_LV_MOVIE_SELECT) in lens.c for the real photo/
-     * movie transition signal and the exposure-memory hook). */
-
     shooting_mode = buf[0];
 
     #ifdef CONFIG_NO_DEDICATED_MOVIE_MODE
     ae_mode_movie = shooting_mode == SHOOTMODE_M;
-    #endif
-
-    /* Re-sync the EOS M native Canon shooting screen on photo/movie changes. */
-    #ifdef CONFIG_EOSM
-    photo_canon_ui_mode_changed();
     #endif
 }
 

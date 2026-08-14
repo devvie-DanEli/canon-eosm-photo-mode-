@@ -1,13 +1,10 @@
 name: Build EOS M
-run-name: Build EOS M Crop Mood slim
+run-name: Build EOS M
 
 on:
   push:
     branches:
-      - main
-      - master
       - eosm-slim-gui
-  workflow_dispatch:
 
 jobs:
   build:
@@ -21,7 +18,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y python2
 
-      - name: Generate placeholder module info (avoids needing Python 2 for every module)
+      - name: Generate placeholder module info (avoids needing Python 2)
         run: |
           for dir in modules/*/; do
             if [ -f "${dir}Makefile" ]; then
@@ -59,7 +56,7 @@ jobs:
           ls -lh platform/EOSM.202/autoexec.bin
           ls -lh platform/EOSM.202/magiclantern-*.zip
           zipfile=$(ls platform/EOSM.202/magiclantern-*.zip)
-          for mod in crop_rec.mo dual_iso.mo mlv_lite.mo mlv_play.mo mlv_snd.mo sd_uhs.mo file_man.mo; do
+          for mod in crop_rec.mo dual_iso.mo hdmi_out.mo mlv_lite.mo mlv_play.mo mlv_snd.mo sd_uhs.mo file_man.mo bench.mo; do
             if ! unzip -l "$zipfile" | grep -q "$mod"; then
               echo "Missing from zip: $mod"
               unzip -l "$zipfile" | grep '\.mo$' || true
@@ -67,6 +64,10 @@ jobs:
             fi
             echo "OK: $mod"
           done
+          if unzip -l "$zipfile" | grep -E 'lua\.mo|selftest\.mo|arkanoid\.mo'; then
+            echo "Unexpected slim module in zip"
+            exit 1
+          fi
 
       - name: Upload autoexec.bin
         uses: actions/upload-artifact@v4
@@ -75,7 +76,7 @@ jobs:
           path: platform/EOSM.202/autoexec.bin
           if-no-files-found: error
 
-      - name: Upload full Magic Lantern zip (camera install)
+      - name: Upload full Magic Lantern zip
         uses: actions/upload-artifact@v4
         with:
           name: magiclantern-eosm-zip

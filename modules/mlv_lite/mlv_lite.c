@@ -164,8 +164,6 @@ static const char * aspect_ratio_choices[] =       {"5:1","4:1","3:1","2.67:1","
 /* config variables */
 
 CONFIG_INT("raw.video.enabled", raw_video_enabled, 1);
-static void (*crop_rec_disable_for_h264)(void) = MODULE_FUNCTION(crop_rec_disable_for_h264);
-static void (*crop_rec_enable_for_raw)(void) = MODULE_FUNCTION(crop_rec_enable_for_raw);
 
 /* Card spanning */
 static CONFIG_INT("raw.card_spanning", card_spanning, 0);
@@ -2163,88 +2161,12 @@ void show_recording_status()
     }
 }
 
-/* Single RAW/H.264 status is drawn by the normal LiveView "Pic Quality"
- * info item (src/lens.c).  Keep the touch action here, but hit-test against
- * that dynamically laid-out item so it never creates a second RAW label. */
-int raw_video_is_enabled(void)
-{
-    return raw_video_enabled ? 1 : 0;
-}
-
-int raw_video_touch_hit(int x, int y)
-{
-    /* Crop Mood is RAW-only: do not allow LiveView "Pic Quality" taps to
-     * toggle RAW off into H.264. Keep the hit silent so the bar does not
-     * open an unrelated editor either. */
-    (void)x;
-    (void)y;
-    return 0;
-}
-
-#ifdef CONFIG_EOSM
-/* True while the RAW LV request is changing state.  H.264 recording must not
- * be allowed to start while the old RAW recorder/buffer state is still being
- * released.  This is deliberately based on the real raw_lv state, not a
- * fixed sleep, because the EOS M transition time is not deterministic. */
-static volatile int raw_video_transition_pending = 0;
-
-int raw_video_transition_busy(void)
-{
-    if (!lv || !is_movie_mode())
-        return 0;
-
-    return raw_video_transition_pending;
-}
-#endif
-
 static REQUIRES(ShootTask) EXCLUDES(settings_sem)
 unsigned int raw_rec_polling_cbr(unsigned int unused)
 {
     if (!compress_mq) return 0;
 
-    static int last_raw_video_enabled = -1;
-
     raw_lv_request_update();
-
-    /* Keep Crop Mood's EOS M state synchronized even when RAW is changed from
-     * the ML menu/settings instead of the LiveView touch target.  Most
-     * importantly, do not touch crop_rec until the underlying Canon RAW LV
-     * request has actually reached the requested state.  The ASSERT seen on
-     * EOS M was in raw_rec_task/reset_buffer_slots(), where raw_info.buffer
-     * was already changing while Crop Mood was being torn down. */
-#ifdef CONFIG_EOSM
-    if (last_raw_video_enabled != raw_video_enabled)
-    {
-        raw_video_transition_pending = 1;
-        last_raw_video_enabled = raw_video_enabled;
-    }
-
-    if (raw_video_transition_pending)
-    {
-        int requested = raw_video_enabled && lv && is_movie_mode();
-        int actual = raw_lv_is_enabled();
-
-        if (requested == actual)
-        {
-            if (!requested)
-            {
-                /* RAW has really been released. Only now disable Crop Mood and
-                 * restore the normal H.264 preview. */
-                if (crop_rec_disable_for_h264)
-                    crop_rec_disable_for_h264();
-                raw_video_transition_pending = 0;
-            }
-            else
-            {
-                /* RAW is really live. Only now allow Crop Mood to re-enter its
-                 * EOS M RAW-only pipeline. */
-                if (crop_rec_enable_for_raw)
-                    crop_rec_enable_for_raw();
-                raw_video_transition_pending = 0;
-            }
-        }
-    }
-#endif
 
     /* auto-disable raw video in photo mode or outside LiveView */
     int raw_video_active = raw_video_enabled && lv && is_movie_mode();
@@ -5158,9 +5080,7 @@ static unsigned int raw_rec_init()
         raw_video_menu[0].children[13].max = 2;
     }
 
-    /* EOS M slim: the toggle now lives in the Movie tab like other cams;
-     * the LiveView "RAW" badge (see raw_video_touch_hit) gives a quick
-     * touch toggle too. */
+    /* EOS M slim: RAW status is shown elsewhere — omit the Movie menu entry. */
     if (!cam_eos_m)
     {
         menu_add("Movie", raw_video_menu, COUNT(raw_video_menu));
@@ -5170,8 +5090,6 @@ static unsigned int raw_rec_init()
     }
     else
     {
-        menu_add("Movie", raw_video_menu, COUNT(raw_video_menu));
-
         /* Flat Small Hacks on Settings; Kill Global Draw on Movie (was under RAW video). */
         if (small_hacks > 2)
             small_hacks = 2;

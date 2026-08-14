@@ -1384,143 +1384,6 @@ static void lensinfo_set_aperture(int raw)
     update_stuff();
 }
 
-
-#ifdef CONFIG_EOSM
-/*
- * EOS M photo/movie exposure memory.
- *
- * Canon normally carries ISO/shutter state across the dedicated photo/movie
- * mode boundary.  Keep two runtime profiles instead.  Aperture is deliberately
- * excluded because it is lens-driven and should remain Canon-controlled.
- *
- * Values are captured immediately before the mode property changes, then the
- * target profile is restored from a task after Canon has finished its mode
- * transition.  The delay is intentional: writing PROP_ISO/PROP_SHUTTER from
- * inside the shooting-mode property callback can race Canon's own transition.
- */
-CONFIG_INT("photo.video.exposure", photo_video_separate_exposure, 1);
-
-static int photo_saved_iso = -1;
-static int photo_saved_shutter = -1;
-static int video_saved_iso = -1;
-static int video_saved_shutter = -1;
-static int photo_saved_valid = 0;
-static int video_saved_valid = 0;
-
-static volatile int photo_video_exposure_restore_pending = 0;
-static volatile int photo_video_exposure_restore_movie = 0;
-
-void photo_video_exposure_mode_changed_bool(int old_movie, int new_movie)
-{
-    if (old_movie == new_movie)
-        return;
-
-    if (photo_video_separate_exposure)
-    {
-        if (old_movie)
-        {
-            video_saved_iso = lens_info.raw_iso;
-            video_saved_shutter = lens_info.raw_shutter;
-            video_saved_valid = 1;
-        }
-        else
-        {
-            photo_saved_iso = lens_info.raw_iso;
-            photo_saved_shutter = lens_info.raw_shutter;
-            photo_saved_valid = 1;
-        }
-
-        photo_video_exposure_restore_movie = new_movie;
-        photo_video_exposure_restore_pending = 1;
-    }
-}
-
-void photo_video_exposure_mode_changed(int old_mode, int new_mode)
-{
-    /* Kept for source compatibility (some callers still pass raw
-     * PROP_SHOOTING_MODE_2 values). On EOS M this camera has no
-     * dedicated Movie position on that property - is_movie_mode() here
-     * is actually driven by PROP_LV_MOVIE_SELECT (see the PROP_HANDLER
-     * below), so this SHOOTMODE_MOVIE comparison is not the real
-     * trigger and is normally a no-op. */
-    int old_movie = (old_mode == SHOOTMODE_MOVIE);
-    int new_movie = (new_mode == SHOOTMODE_MOVIE);
-    photo_video_exposure_mode_changed_bool(old_movie, new_movie);
-}
-
-/* The actual photo/movie transition signal on EOS M: the dedicated
- * Movie switch, not PROP_SHOOTING_MODE_2 (this platform defines
- * CONFIG_NO_DEDICATED_MOVIE_MODE, so is_movie_mode() itself is based
- * on lv_movie_select == LVMS_ENABLE_MOVIE). Track our own last-known
- * state rather than relying on lv_movie_select's own PROP_INT handler
- * (in propvalues.c) having already run first - handler execution order
- * between files isn't guaranteed. */
-static int photo_video_last_movie_state = -1;
-
-PROP_HANDLER(PROP_LV_MOVIE_SELECT)
-{
-    int new_movie = (buf[0] == LVMS_ENABLE_MOVIE);
-
-    if (photo_video_last_movie_state != -1 &&
-        photo_video_last_movie_state != new_movie)
-    {
-        photo_video_exposure_mode_changed_bool(
-            photo_video_last_movie_state, new_movie);
-        photo_canon_ui_mode_changed();
-    }
-
-    photo_video_last_movie_state = new_movie;
-}
-
-static void photo_video_exposure_task(void *unused)
-{
-    (void)unused;
-
-    TASK_LOOP
-    {
-        if (!photo_video_exposure_restore_pending || !photo_video_separate_exposure)
-        {
-            msleep(50);
-            continue;
-        }
-
-        /* Let Canon finish changing the shooting mode and its exposure props. */
-        msleep(150);
-
-        if (!photo_video_separate_exposure ||
-            !photo_video_exposure_restore_pending)
-            continue;
-
-        int target_movie = photo_video_exposure_restore_movie;
-        int target_iso = target_movie ? video_saved_iso : photo_saved_iso;
-        int target_shutter = target_movie ? video_saved_shutter : photo_saved_shutter;
-        int target_valid = target_movie ? video_saved_valid : photo_saved_valid;
-
-        /* If another mode change happened while waiting, discard this restore. */
-        if ((is_movie_mode() ? 1 : 0) != target_movie)
-            continue;
-
-        if (target_valid)
-        {
-            /* A raw ISO of 0 is Auto ISO; use the same raw value Canon uses. */
-            if (target_iso >= 0)
-                lens_set_rawiso(target_iso);
-
-            /* A zero shutter means Canon is metering it automatically.  Do not
-             * try to force zero through lens_set_rawshutter(), which rejects it. */
-            if (target_shutter > 0)
-                lens_set_rawshutter(target_shutter);
-        }
-
-        photo_video_exposure_restore_pending = 0;
-        lens_display_set_dirty();
-        msleep(50);
-    }
-}
-
-TASK_CREATE("photo_video_exposure_task", photo_video_exposure_task, 0, 0x1d, 0x1000);
-#endif
-
 extern int bv_auto;
 
 #if defined(CONFIG_NO_MANUAL_EXPOSURE_MOVIE) && !defined(CONFIG_NO_DEDICATED_MOVIE_MODE)
@@ -2818,8 +2681,6 @@ static LVINFO_UPDATE_FUNC(disp_preset_update)
     }
 }
 
-static int (*raw_video_is_enabled)() = MODULE_FUNCTION(raw_video_is_enabled);
-
 static LVINFO_UPDATE_FUNC(picq_update)
 {
     LVINFO_BUFFER(16);
@@ -2846,16 +2707,17 @@ static LVINFO_UPDATE_FUNC(picq_update)
         );
     }
     
-    /* EOS M slim: use the normal Pic Quality item as the single RAW/H.264
-     * status indicator in movie Live View.  The old mlv_lite RAW badge was a
-     * second, fixed-position item and could collide with the audio/other
-     * LiveView overlays.  Green means RAW video is armed; red means Canon
-     * H.264 recording is selected. */
-    if (is_movie_mode())
+    int raw_lv = raw_lv_is_enabled();
+    if (raw_lv)
     {
-        int raw_on = raw_video_is_enabled && raw_video_is_enabled();
-        snprintf(buffer, sizeof(buffer), "RAW");
-        item->color_fg = raw_on ? COLOR_GREEN1 : COLOR_RED;
+        /* make it obvious that LiveView is in RAW mode */
+        /* (primarily for troubleshooting the raw backend, proper raw_lv_request/release calls and Magic Zoom slowdowns) */
+        if (is_movie_mode())
+        {
+            /* todo: icon? */
+            snprintf(buffer, sizeof(buffer), "RAW");
+        }
+        item->color_fg = raw_lv == 1 ? COLOR_GREEN1 : COLOR_GRAY(20);
     }
 }
 

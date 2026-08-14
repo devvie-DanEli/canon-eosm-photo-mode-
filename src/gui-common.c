@@ -92,8 +92,6 @@ static int (*crop_rec_lv_transition_busy)() =
 static int (*dual_iso_is_enabled)() = MODULE_FUNCTION(dual_iso_is_enabled);
 static int (*dual_iso_slim_step_recovery)(int) =
     MODULE_FUNCTION(dual_iso_slim_step_recovery);
-static int (*raw_video_touch_hit)(int, int) =
-    MODULE_FUNCTION(raw_video_touch_hit);
 
 static int slim_touch_dual_iso_enabled(void)
 {
@@ -200,15 +198,45 @@ static void slim_touch_lv_change_field(enum lvinfo_touch_field field,
                 shutter_toggle((void *)-1, sign);
             break;
         case LVINFO_TOUCH_ISO:
-            /* With Dual ISO, base ISO remains fixed and this editor steps
-             * only the recovery ISO.  Otherwise retain the normal ISO path. */
-            if (slim_touch_dual_iso_enabled())
+            /* Dual ISO recovery is a video-oriented tool; in photo mode always
+             * use the normal single-ISO path so exposure stays independent. */
+            if (is_movie_mode() && slim_touch_dual_iso_enabled())
                 slim_touch_step_dual_iso_recovery(sign);
             else if (!menu_adjust_value_by_name("Expo", "ISO", sign))
                 iso_toggle((void *)-1, sign);
             break;
         case LVINFO_TOUCH_WB:
-            kelvin_toggle((void *)-1, sign);
+            /* Keep photo and video white balance independent: photo touches
+             * only PH props, movie touches only LV props. */
+            {
+                int k;
+                switch (lens_info.wb_mode)
+                {
+                    case WB_SUNNY: k = 5200; break;
+                    case WB_SHADE: k = 7000; break;
+                    case WB_CLOUDY: k = 6000; break;
+                    case WB_TUNGSTEN: k = 3200; break;
+                    case WB_FLUORESCENT: k = 4000; break;
+                    case WB_FLASH: k = 6500; break;
+                    default: k = lens_info.kelvin; break;
+                }
+                int step = KELVIN_STEP;
+                if (k + sign * step > 7000)
+                    step *= 5;
+                k = (k / step) * step;
+                k = COERCE(k + sign * step, KELVIN_MIN, KELVIN_MAX);
+                int mode = WB_KELVIN;
+                if (is_movie_mode())
+                {
+                    prop_request_change(PROP_WB_MODE_LV, &mode, 4);
+                    prop_request_change(PROP_WB_KELVIN_LV, &k, 4);
+                }
+                else
+                {
+                    prop_request_change(PROP_WB_MODE_PH, &mode, 4);
+                    prop_request_change(PROP_WB_KELVIN_PH, &k, 4);
+                }
+            }
             break;
         case LVINFO_TOUCH_CROP:
             deferred = 1;
@@ -251,9 +279,6 @@ static int slim_touch_lv_direct_editor(struct event * event)
     if (monitoring_graph_touch_toggle(x, y))
         return 1;
 
-    if (raw_video_touch_hit && raw_video_touch_hit(x, y))
-        return 1;
-
     if (lvinfo_touch_editor_is_open())
     {
         enum lvinfo_touch_field field = lvinfo_touch_editor_field();
@@ -291,11 +316,9 @@ static int slim_touch_lv_direct_editor(struct event * event)
 
 static int slim_touch_lv_context_ok(void)
 {
-    /*
-     * EOS M slim: the same LV touch editor is available in photo and movie
-     * Live View.  Photo mode: ISO, shutter, aperture, white balance.
-     * Movie mode also retains crop/FPS/bit-depth controls.
-     */
+    /* Photo and movie Live View both support exposure touch (ISO/Shutter/
+     * Aperture/WB). Crop/FPS/bit-depth remain movie-only via the field
+     * filter in lvinfo_touch_field_at(). */
     return lv && !RECORDING &&
            !gui_menu_shown() && lv_dispsize != 10 &&
            !slim_crop_rec_transition_busy();
@@ -306,12 +329,8 @@ static void slim_touch_open_for_taps(int taps)
     if (!slim_touch_lv_context_ok() || lvinfo_touch_editor_is_open())
         return;
 
-    /* The Quick Panel (tap-to-open) is a fixed 8-item grid tuned for movie
-     * shooting - Movie Mode / Aspect Ratio / Resolution / Frame Rate
-     * alongside WB/Shutter/Aperture/ISO. It has no photo-mode layout, so
-     * keep it movie-only; a blank-space tap in photo mode does nothing
-     * (the ISO/shutter/aperture fields still have their own direct
-     * editor, handled separately in slim_touch_lv_direct_editor). */
+    /* Quick Panel / last-settings taps are movie-mode only. Photo mode
+     * only uses the direct exposure field editors on the status bar. */
     if (!is_movie_mode())
         return;
 
@@ -403,11 +422,12 @@ static void slim_touch_register_tap(void)
 
 static int handle_slim_rec_touch_block(struct event * event)
 {
-    if (slim_crop_rec_transition_busy() && lv)
+    if (slim_crop_rec_transition_busy())
     {
         /* The crop module is validating Canon's newly-created LV buffers.
-         * Only block while still in LiveView. In PLAY/QR the guard must not
-         * steal touch navigation from Canon or mlv_play. */
+         * Let no touch/dial shortcut alter another property in this window.
+         * Image-area taps are retained so a deliberate boot-time double tap
+         * remains a double tap once the guard has finished. */
         if (event->param == BGMT_TOUCH_1_FINGER)
         {
             int x, y;

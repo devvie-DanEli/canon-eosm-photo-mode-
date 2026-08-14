@@ -1,0 +1,21 @@
+Transferred tweaks onto claude_autoedge_build_kill-dualiso-rec
+================================================================
+
+From FIXED v3 / photo-mode work:
+
+1) Photo Mode Live-view touchables
+   - LV bar touch works in photo mode for ISO, Shutter, Aperture, White Balance.
+   - Crop / FPS / Bit depth remain movie-only.
+   - Quick Panel / blank-area taps remain movie-only.
+
+2) Separate exposure settings (Photo vs Video)
+   - WB touch in photo mode writes only PROP_WB_*_PH (photo Kelvin).
+   - WB touch in movie mode writes only PROP_WB_*_LV (video Kelvin).
+   - Photo ISO touch does not use Dual-ISO recovery stepping (movie-only tool).
+
+3) Video Mode related settings disabled in Photo mode
+   - INFO / SET / Up-Down / Shutter zoom Settings entries: DEP_MOVIE_MODE.
+   - INFO button shortcuts (Dual ISO, overlays, framing, Quick Panel) do not
+     run in photo mode; Canon INFO is left alone for stills.
+
+Original autoedge / kill-dualiso-rec changes in this tree are otherwise kept.

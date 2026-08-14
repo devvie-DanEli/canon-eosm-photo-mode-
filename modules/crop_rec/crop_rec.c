@@ -63,19 +63,6 @@ static CONFIG_INT("crop.preset_fps", crop_preset_fps_reduce, 1);
 static CONFIG_INT("crop.preset", crop_preset_index, 2);
 static CONFIG_INT("crop.shutter_range", shutter_range, 0);
 static CONFIG_INT("crop.fix_dual_iso_flicker", fix_dual_iso_flicker, 1);
-static int (*raw_video_is_enabled)(void) = MODULE_FUNCTION(raw_video_is_enabled);
-static int (*raw_video_transition_busy)(void) = MODULE_FUNCTION(raw_video_transition_busy);
-#ifdef CONFIG_EOSM
-static volatile int slim_raw_transition_wait = 0;
-#endif
-
-static int crop_raw_mode_available(void)
-{
-    /* Crop Mood is RAW-only on EOS M. Always report available so the menu
-     * does not show "OFF (RAW only)" when the RAW module is present.
-     * The actual hooks still respect raw_lv_is_enabled() in update_patch(). */
-    return 1;
-}
 
 CONFIG_INT("crop.bit_depth", bit_depth_analog, 1);
 #define OUTPUT_14BIT (bit_depth_analog == 0)
@@ -526,10 +513,8 @@ static int slim_handle_info_button(unsigned int key)
     if (!is_EOSM || key != MODULE_KEY_INFO)
         return 0;
 
-    /* The INFO shortcut is deliberately a movie-mode-only feature on EOS M.
-     * In photo mode Canon must receive INFO so its native shooting display can
-     * cycle normally, and a saved Dual ISO/overlay shortcut must never leak
-     * into the photo UI. */
+    /* Movie-only shortcuts (Dual ISO, overlays, framing, Quick Panel).
+     * In photo mode let Canon own INFO so native stills UI works. */
     if (!is_movie_mode())
         return 0;
 
@@ -718,8 +703,7 @@ static unsigned int photo_keypress_cbr(unsigned int key)
         
         if (lv_dispsize != 10)
         {
-            /* U/D and L/R: Shutter / Aperture / ISO (Settings → Up/Down / Left/Right Button)
-             * Separate assignments for photo mode vs video mode. */
+            /* U/D and L/R: Shutter / Aperture / ISO (Settings → Up/Down / Left/Right Button) */
             if (key == MODULE_KEY_PRESS_UP && slim_handle_arrow_adjust(Arrows_U_D, 1))
                 return 0;
             if (key == MODULE_KEY_PRESS_DOWN && slim_handle_arrow_adjust(Arrows_U_D, -1))
@@ -5061,56 +5045,8 @@ static void uninstall_patches()
         }
 }
 
-static void update_patch(void);
-
-/* RAW-to-H.264 special mode removed for Crop Mood firmware.
- * When RAW is turned off, update_patch() already uninstalls hooks
- * via the !raw_lv_is_enabled() check. Keep the exported symbol so
- * mlv_lite still links cleanly. */
-void crop_rec_disable_for_h264(void)
-{
-    /* no-op */
-}
-
-#ifdef CONFIG_EOSM
-void crop_rec_enable_for_raw(void)
-{
-    if (!is_EOSM)
-        return;
-    /* Re-enter the EOS M LV guard after RAW LiveView is enabled. */
-    slim_raw_transition_wait = 1;
-    eosm_lv_guard_request();
-    crop_set_dirty(10);
-    lens_display_set_dirty();
-    redraw_after(150);
-}
-#endif
-
 static void update_patch()
 {
-#ifdef CONFIG_EOSM
-    /* EOS M slim Crop Mood is a RAW-only pipeline.  Do not install or
-     * re-install its sensor/preview hooks while Canon H.264 is selected,
-     * and do not install them until the RAW LiveView stream is actually
-     * enabled.  This avoids crossing the MLV RAW teardown/startup boundary
-     * with crop_rec's memory hooks, which can crash the next record start. */
-    if (is_EOSM && !raw_lv_is_enabled())
-    {
-        if (patch_active)
-        {
-            uninstall_patches();
-            patch_active = 0;
-        }
-        /* RAW LiveView off: restore Canon GUI path. */
-        extern int kill_canon_gui_mode;
-        kill_canon_gui_mode = 0;
-        if (canon_gui_front_buffer_disabled())
-            canon_gui_enable_front_buffer(0);
-        crop_preset = 0;
-        return;
-    }
-#endif
-
     if (CROP_PRESET_MENU)
     {
         /* update preset */
@@ -5165,16 +5101,10 @@ static void update_patch()
             extern int kill_canon_gui_mode;
             if (kill_canon_gui_mode != 0)
             {
-                /*
-                 * In EOS M slim H.264 mode the ML LiveView overlay remains the
-                 * active UI. Do not restore Canon's bitmap/front buffer here,
-                 * otherwise all of the ML info fields disappear immediately
-                 * after RAW -> H.264.
-                 */
+                kill_canon_gui_mode = 0;
+                if (canon_gui_front_buffer_disabled())
                 {
-                    kill_canon_gui_mode = 0;
-                    if (canon_gui_front_buffer_disabled())
-                        canon_gui_enable_front_buffer(0);
+                    canon_gui_enable_front_buffer(0);
                 }
             }
 
@@ -5212,13 +5142,6 @@ static int pic_quality_warning = 0;
 
 static MENU_UPDATE_FUNC(crop_update)
 {
-    if (!crop_raw_mode_available())
-    {
-        MENU_SET_VALUE("OFF (RAW only)");
-        MENU_SET_ENABLED(0);
-        return;
-    }
-
     if (is_DIGIC_5)
     {
         /* reveal options for the current crop mode (1:1, 1x3 and 3x3) */
@@ -5752,8 +5675,8 @@ static struct menu_entry slim_info_button_menu[] = {
         .update    = slim_info_button_update,
         .icon_type = IT_DICE,
         .depends_on = DEP_MOVIE_MODE,
-        .help      = "Assign INFO to an ML shortcut in movie mode.",
-        .help2     = "Disabled in photo mode. OFF uses Canon INFO. Idle movie LV: long-press INFO (or double-press) opens the last setting.",
+        .help      = "Assign INFO to an overlay, framing, or the Quick Panel (movie mode only).",
+        .help2     = "Disabled in photo mode. OFF uses Canon INFO. Idle movie LV: long-press INFO opens last setting.",
     },
     {
         .name      = "SET Button",
@@ -5763,8 +5686,9 @@ static struct menu_entry slim_info_button_menu[] = {
         .choices   = CHOICES("x10 zoom", "Last settings"),
         .edit_mode = EM_INLINE_ADJUST,
         .icon_type = IT_DICE,
+        .depends_on = DEP_MOVIE_MODE,
         .help      = "Choose what SET does on the movie LiveView screen.",
-        .help2     = "Last settings opens the last changed ML setting, like a LiveView screen tap.",
+        .help2     = "Movie mode only. Last settings opens the last changed ML setting.",
     },
     {
         .name      = "Up/Down Button",
@@ -5773,8 +5697,9 @@ static struct menu_entry slim_info_button_menu[] = {
         .choices   = CHOICES("OFF", "Shutter", "Aperture", "ISO"),
         .edit_mode = EM_INLINE_ADJUST,
         .icon_type = IT_DICE,
-        .help      = "What UP/DOWN adjust on the LiveView screen (not while recording).",
-        .help2     = "Shutter: faster/slower. Aperture: open/close. ISO: up/down.",
+        .depends_on = DEP_MOVIE_MODE,
+        .help      = "What UP/DOWN adjust on the movie LiveView screen (not while recording).",
+        .help2     = "Movie mode only. In photo mode use LiveView bar touch for exposure.",
     },
     {
         .name      = "Shutter zoom",
@@ -5783,8 +5708,9 @@ static struct menu_entry slim_info_button_menu[] = {
         .choices   = CHOICES("OFF", "ON", "Sticky"),
         .edit_mode = EM_INLINE_ADJUST,
         .icon_type = IT_DICE,
+        .depends_on = DEP_MOVIE_MODE,
         .help      = "Half-shutter x10 zoom (same as SET). ON: hold to zoom; Sticky: tap to toggle.",
-        .help2     = "Only in movie LV with ML overlays. Not active while recording.",
+        .help2     = "Movie mode only. Not active while recording.",
     },
 };
 
@@ -7129,7 +7055,6 @@ static struct menu_entry customize_buttons_menu[] =
 #ifdef CONFIG_SLIM_MENUS
                 .max      = 7,
                 .choices  = CHOICES("OFF", "Zoom x10", "ISO", "Aperture -", "Dual ISO", "False color", "Shutter Expo", "Aperture Expo"),
-                .depends_on = DEP_MOVIE_MODE,
 #else
                 .max      = 8,
                 .choices  = CHOICES("OFF", "Zoom x10", "ISO", "Aperture -", "Dual ISO", "False color", "Shutter Expo", "Aperture Expo", "ISO Expo"),
@@ -7368,7 +7293,6 @@ static void eosm_lv_guard_clear(void)
 {
     eosm_lv_guard_pending = 0;
     eosm_lv_guard_busy = 0;
-    slim_raw_transition_wait = 0;
     crop_rec_lv_dirty = 0;
     settings_changed = 0;
 }
@@ -7387,15 +7311,7 @@ static int eosm_lv_guard_step(int menu_shown, int mlv_busy)
         return 0;
     }
 
-    /* Leaving LiveView (Canon PLAY / QR / still photo UI): release the guard
-     * so touch and navigation are not blocked by a stuck transition. */
-    if (!lv)
-    {
-        eosm_lv_guard_clear();
-        return 0;
-    }
-
-    if (menu_shown || RECORDING_RAW || mlv_busy)
+    if (!lv || menu_shown || RECORDING_RAW || mlv_busy)
         return 1;
 
     /* x10 is Canon's focusing view, not the custom x5 preview.  Do not hold
@@ -7843,18 +7759,6 @@ static unsigned int crop_rec_keypress_cbr(unsigned int key)
          key == MODULE_KEY_WHEEL_LEFT || key == MODULE_KEY_WHEEL_RIGHT ||
          key == MODULE_KEY_INFO))
         return 0;
-
-    /* Do not let Canon H.264/RAW recording start while the RAW request is
-     * still crossing the Live View state machine. This is a state guard, not
-     * a fixed delay: it clears only after the underlying RAW state and, on
-     * RAW re-entry, the EOS M crop pipeline are ready. */
-    if (key == MODULE_KEY_REC && !RECORDING &&
-        ((raw_video_transition_busy && raw_video_transition_busy()) ||
-         slim_raw_transition_wait))
-    {
-        NotifyBox(1200, "Changing RAW - please wait");
-        return 0;
-    }
 #endif
 
     /* Close the touch editor at the REC press itself, before the asynchronous
@@ -7866,8 +7770,7 @@ static unsigned int crop_rec_keypress_cbr(unsigned int key)
     /* EOS M Live View taps are routed by gui-common.c (Quick Panel, grid,
      * and Last Settings). Do not let the legacy crop.tapdisp shortcuts race
      * that router during boot or Canon INFO transitions. */
-    /* Only route LV taps away from Canon; never block playback navigation. */
-    if (is_EOSM && lv && key == MODULE_KEY_TOUCH_1_FINGER)
+    if (is_EOSM && key == MODULE_KEY_TOUCH_1_FINGER)
         return 1;
 
     /* Recording: touch is blocked in gui-common (idle LV touch is allowed). */
@@ -8039,14 +7942,14 @@ static unsigned int crop_rec_keypress_cbr(unsigned int key)
                 /* Non-EOSM (or during REC): legacy U/D L/R shortcuts */
                 if (!is_EOSM || RECORDING)
                 {
-            if (key == MODULE_KEY_PRESS_UP && slim_handle_arrow_adjust(Arrows_U_D, 1))
-                return 0;
-            if (key == MODULE_KEY_PRESS_DOWN && slim_handle_arrow_adjust(Arrows_U_D, -1))
-                return 0;
-            if (key == MODULE_KEY_PRESS_RIGHT && slim_handle_arrow_adjust(Arrows_L_R, 1))
-                return 0;
-            if (key == MODULE_KEY_PRESS_LEFT && slim_handle_arrow_adjust(Arrows_L_R, -1))
-                return 0;
+                    if (key == MODULE_KEY_PRESS_UP && slim_handle_arrow_adjust(Arrows_U_D, 1))
+                        return 0;
+                    if (key == MODULE_KEY_PRESS_DOWN && slim_handle_arrow_adjust(Arrows_U_D, -1))
+                        return 0;
+                    if (key == MODULE_KEY_PRESS_RIGHT && slim_handle_arrow_adjust(Arrows_L_R, 1))
+                        return 0;
+                    if (key == MODULE_KEY_PRESS_LEFT && slim_handle_arrow_adjust(Arrows_L_R, -1))
+                        return 0;
                 }
 
                 if (((key == MODULE_KEY_INFO)       && !is_EOSM && INFO_button == 2) ||
