@@ -646,10 +646,10 @@ static int slim_handle_arrow_adjust(int mode, int dir)
 /* customize buttons and buttons shortcuts, FIXME: implement these as feature in ML core? */
 static unsigned int photo_keypress_cbr(unsigned int key)
 {
-    if (PLAY_MODE)
+    /* Outside LiveView: pass every key (PLAY / mlv_play navigation). */
+    if (!lv)
         return 1;
 
-    
     if (lv && !gui_menu_shown() && !is_movie_mode())
     {
         if (is_EOSM && slim_handle_shutter_zoom(key))
@@ -7750,8 +7750,9 @@ static unsigned int crop_rec_keypress_cbr(unsigned int key)
 {
     extern int kill_canon_gui_mode;
 
-    /* Playback / mlv_play owns SET, arrows, and trash for navigation/delete. */
-    if (PLAY_MODE)
+    /* Outside LiveView (Canon PLAY / mlv_play): never steal keys.
+     * SET must reach mlv_play for the navigation/delete OSD. */
+    if (!lv)
         return 1;
 
 #ifdef CONFIG_EOSM
