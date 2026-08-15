@@ -114,9 +114,19 @@ if "Summary" not in tags:
 rst2htmlCommands = ["rst2html", "rst2html5", "rst2html.py", "rst2html5.py"]
 rst2htmlCommand = get_command_of(rst2htmlCommands)
 
-# render the RST as html -> txt without the metadata tags
-# sed command at end is because Windows inserts CR characters all over the place. Removing them should be benign on other platforms. 
-txt = run('cat README.rst | grep -v -E "^:([^:])+:.+$" | ' + rst2htmlCommand + ' | python ../html2text.py -b 700 | sed "s/\r$//"')
+if rst2htmlCommand:
+    # render the RST as html -> txt without the metadata tags
+    # sed command at end is because Windows inserts CR characters all over the place. Removing them should be benign on other platforms.
+    txt = run('cat README.rst | grep -v -E "^:([^:])+:.+$" | ' + rst2htmlCommand + ' | python ../html2text.py -b 700 | sed "s/\r$//"')
+else:
+    # CI builds often lack python-docutils; do not fail the firmware build.
+    print >> sys.stderr, "Warning: rst2html/python-docutils not found; using plain README text for module strings."
+    fallback_lines = []
+    for l in lines:
+        if l.startswith("..") or l.strip().startswith(":"):
+            continue
+        fallback_lines.append(l)
+    txt = "\n".join(fallback_lines)
 
 desc = ""
 last_str = "Description"

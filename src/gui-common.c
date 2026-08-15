@@ -206,37 +206,9 @@ static void slim_touch_lv_change_field(enum lvinfo_touch_field field,
                 iso_toggle((void *)-1, sign);
             break;
         case LVINFO_TOUCH_WB:
-            /* Keep photo and video white balance independent: photo touches
-             * only PH props, movie touches only LV props. */
-            {
-                int k;
-                switch (lens_info.wb_mode)
-                {
-                    case WB_SUNNY: k = 5200; break;
-                    case WB_SHADE: k = 7000; break;
-                    case WB_CLOUDY: k = 6000; break;
-                    case WB_TUNGSTEN: k = 3200; break;
-                    case WB_FLUORESCENT: k = 4000; break;
-                    case WB_FLASH: k = 6500; break;
-                    default: k = lens_info.kelvin; break;
-                }
-                int step = KELVIN_STEP;
-                if (k + sign * step > 7000)
-                    step *= 5;
-                k = (k / step) * step;
-                k = COERCE(k + sign * step, KELVIN_MIN, KELVIN_MAX);
-                int mode = WB_KELVIN;
-                if (is_movie_mode())
-                {
-                    prop_request_change(PROP_WB_MODE_LV, &mode, 4);
-                    prop_request_change(PROP_WB_KELVIN_LV, &k, 4);
-                }
-                else
-                {
-                    prop_request_change(PROP_WB_MODE_PH, &mode, 4);
-                    prop_request_change(PROP_WB_KELVIN_PH, &k, 4);
-                }
-            }
+            /* Photo and movie share Kelvin toggle; Canon keeps PH/LV props.
+             * kelvin_toggle is the safe, already-linked path used by Expo menu. */
+            kelvin_toggle((void *)-1, sign);
             break;
         case LVINFO_TOUCH_CROP:
             deferred = 1;
