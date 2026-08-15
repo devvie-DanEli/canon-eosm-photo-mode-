@@ -308,11 +308,10 @@ int nondigic_zoom_overlay_enabled()
         should_draw_zoom_overlay();
 }
 
-/* used to detect whether Dual ISO is currently enabled, without
- * hard-linking against the dual_iso module (it may not be loaded).
- * MODULE_FUNCTION needs a declared symbol to take the address of. */
-extern int dual_iso_is_enabled(void);
-static int (*dual_iso_is_enabled_fn)() = MODULE_FUNCTION(dual_iso_is_enabled);
+/* Detect Dual ISO without hard-linking the module.
+ * The function pointer MUST be named dual_iso_is_enabled so MODULE_FUNCTION
+ * updates this pointer when dual_iso.mo loads (same pattern as gui-common). */
+static int (*dual_iso_is_enabled)() = MODULE_FUNCTION(dual_iso_is_enabled);
 
 /* "KILL FP/Zebras (Dual ISO Rec)": while recording, if Dual ISO is
  * enabled, temporarily hide focus peaking / zebras; restore them
@@ -323,7 +322,7 @@ static CONFIG_INT("kill.fp.dualiso.rec", kill_fp_dual_iso_rec, 0);
 
 static int dual_iso_currently_enabled()
 {
-    return dual_iso_is_enabled_fn && dual_iso_is_enabled_fn();
+    return dual_iso_is_enabled && dual_iso_is_enabled();
 }
 
 static int zebra_killed_by_dual_iso_rec()
@@ -2389,7 +2388,7 @@ static MENU_UPDATE_FUNC(kill_zebra_dualiso_rec_display)
     MENU_SET_VALUE("%s", CURRENT_VALUE ? "ON" : "OFF");
     if (CURRENT_VALUE)
     {
-        if (!dual_iso_is_enabled_fn)
+        if (!dual_iso_is_enabled)
             MENU_SET_WARNING(MENU_WARN_ADVICE, "Dual ISO module is not loaded.");
         else if (!dual_iso_currently_enabled())
             MENU_SET_WARNING(MENU_WARN_INFO, "No effect: Dual ISO is currently off.");
@@ -2405,7 +2404,7 @@ static MENU_UPDATE_FUNC(kill_fp_dualiso_rec_display)
     MENU_SET_VALUE("%s", CURRENT_VALUE ? "ON" : "OFF");
     if (CURRENT_VALUE)
     {
-        if (!dual_iso_is_enabled_fn)
+        if (!dual_iso_is_enabled)
             MENU_SET_WARNING(MENU_WARN_ADVICE, "Dual ISO module is not loaded.");
         else if (!dual_iso_currently_enabled())
             MENU_SET_WARNING(MENU_WARN_INFO, "No effect: Dual ISO is currently off.");

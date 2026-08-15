@@ -317,6 +317,19 @@ static unsigned int isoless_refresh(unsigned int ctx)
     static uint32_t backup_lv[20];
     static uint32_t backup_ph[20];
     int mv = is_movie_mode() ? 1 : 0;
+
+    /* Auto-disable Dual ISO whenever the camera leaves movie mode.
+     * Photo mode should not keep Dual ISO armed; re-enable it in video. */
+    {
+        static int prev_movie = -1;
+        if (prev_movie == 1 && mv == 0 && isoless_hdr)
+        {
+            isoless_hdr = 0;
+            lens_display_set_dirty();
+        }
+        prev_movie = mv;
+    }
+
     int lvi = lv ? 1 : 0;
     int raw_mv = mv && lv && raw_lv_is_enabled();
     int raw_ph = (pic_quality & 0xFE00FF) == (PICQ_RAW & 0xFE00FF);
