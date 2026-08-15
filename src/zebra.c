@@ -2165,6 +2165,36 @@ draw_zebra_and_focus( int Z, int F )
     uint8_t * const bvram = bmp_vram_real();
     if (unlikely(!bvram)) return 0;
     if (unlikely(!bvram_mirror)) return 0;
+
+    /* Rising-edge clear when Dual ISO kill engages so frozen zebra/FP
+     * pixels do not stay stuck on the overlay after updates stop. */
+    {
+        static int prev_zebra_kill = 0;
+        static int prev_fp_kill = 0;
+        int zk = zebra_killed_by_dual_iso_rec() ? 1 : 0;
+        int fk = focus_peaking_killed_by_dual_iso_rec() ? 1 : 0;
+        if ((zk && !prev_zebra_kill) || (fk && !prev_fp_kill))
+        {
+#ifdef FEATURE_FOCUS_PEAK
+            /* Restore FP dots that were still marked dirty, then drop them. */
+            if (dirty_pixels && dirty_pixel_values)
+            {
+                for (int i = 0; i < dirty_pixels_num; i++)
+                {
+                    uint16_t *b1 = (uint16_t *)(bvram + dirty_pixels[i]);
+                    uint16_t *b2 = (uint16_t *)(bvram + dirty_pixels[i] + BMPPITCH);
+                    *b1 = dirty_pixel_values[i] & 0xFFFF;
+                    *b2 = dirty_pixel_values[i] >> 16;
+                }
+            }
+            dirty_pixels_num = 0;
+#endif
+            bvram_mirror_clear();
+            bmp_fill(0, os.x0, os.y0, os.x_max - os.x0, os.y_max - os.y0);
+        }
+        prev_zebra_kill = zk;
+        prev_fp_kill = fk;
+    }
     
     #ifdef FEATURE_ZEBRA
     draw_zebras(Z);

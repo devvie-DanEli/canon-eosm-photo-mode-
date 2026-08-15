@@ -1386,6 +1386,102 @@ static void lensinfo_set_aperture(int raw)
 
 extern int bv_auto;
 
+/* Independent ISO/shutter/aperture memory for photo vs movie mode.
+ * When the user switches LV movie select (EOS M photo/movie switch),
+ * save the current values and restore the other mode's last values. */
+CONFIG_INT("photo.video.exposure", photo_video_separate_exposure, 1);
+
+static int photo_saved_iso = -1;
+static int photo_saved_shutter = -1;
+static int photo_saved_aperture = -1;
+static int video_saved_iso = -1;
+static int video_saved_shutter = -1;
+static int video_saved_aperture = -1;
+static int photo_saved_valid = 0;
+static int video_saved_valid = 0;
+
+static volatile int photo_video_exposure_restore_pending = 0;
+static volatile int photo_video_exposure_restore_movie = 0;
+
+static void photo_video_exposure_mode_changed_bool(int old_movie, int new_movie)
+{
+    if (old_movie == new_movie)
+        return;
+    if (!photo_video_separate_exposure)
+        return;
+
+    if (old_movie)
+    {
+        video_saved_iso = lens_info.raw_iso;
+        video_saved_shutter = lens_info.raw_shutter;
+        video_saved_aperture = lens_info.raw_aperture;
+        video_saved_valid = 1;
+    }
+    else
+    {
+        photo_saved_iso = lens_info.raw_iso;
+        photo_saved_shutter = lens_info.raw_shutter;
+        photo_saved_aperture = lens_info.raw_aperture;
+        photo_saved_valid = 1;
+    }
+
+    photo_video_exposure_restore_movie = new_movie;
+    photo_video_exposure_restore_pending = 1;
+}
+
+static void photo_video_exposure_task(void *unused)
+{
+    (void)unused;
+    static int last_movie = -1;
+
+    TASK_LOOP
+    {
+        int new_movie = is_movie_mode() ? 1 : 0;
+
+        if (last_movie != -1 && last_movie != new_movie)
+            photo_video_exposure_mode_changed_bool(last_movie, new_movie);
+        last_movie = new_movie;
+
+        if (!photo_video_exposure_restore_pending || !photo_video_separate_exposure)
+        {
+            msleep(50);
+            continue;
+        }
+
+        /* Let Canon finish mode switch and its exposure props. */
+        msleep(150);
+
+        if (!photo_video_separate_exposure || !photo_video_exposure_restore_pending)
+            continue;
+
+        int target_movie = photo_video_exposure_restore_movie;
+        int target_iso = target_movie ? video_saved_iso : photo_saved_iso;
+        int target_shutter = target_movie ? video_saved_shutter : photo_saved_shutter;
+        int target_aperture = target_movie ? video_saved_aperture : photo_saved_aperture;
+        int target_valid = target_movie ? video_saved_valid : photo_saved_valid;
+
+        if ((is_movie_mode() ? 1 : 0) != target_movie)
+            continue;
+
+        if (target_valid)
+        {
+            if (target_iso >= 0)
+                lens_set_rawiso(target_iso);
+            if (target_shutter > 0)
+                lens_set_rawshutter(target_shutter);
+            if (target_aperture > 0 && lens_info.lens_exists)
+                lens_set_rawaperture(target_aperture);
+        }
+
+        photo_video_exposure_restore_pending = 0;
+        lens_display_set_dirty();
+        msleep(50);
+    }
+}
+
+TASK_CREATE("photo_video_exposure_task", photo_video_exposure_task, 0, 0x1d, 0x1000);
+
+
 #if defined(CONFIG_NO_MANUAL_EXPOSURE_MOVIE) && !defined(CONFIG_NO_DEDICATED_MOVIE_MODE)
     /*
      * If we don't have manual exposure controls in movie mode, we need to use expo override (500D/1100D/50D).
