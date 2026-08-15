@@ -309,7 +309,9 @@ int nondigic_zoom_overlay_enabled()
 }
 
 /* used to detect whether Dual ISO is currently enabled, without
- * hard-linking against the dual_iso module (it may not be loaded) */
+ * hard-linking against the dual_iso module (it may not be loaded).
+ * MODULE_FUNCTION needs a declared symbol to take the address of. */
+extern int dual_iso_is_enabled(void);
 static int (*dual_iso_is_enabled_fn)() = MODULE_FUNCTION(dual_iso_is_enabled);
 
 /* "KILL FP/Zebras (Dual ISO Rec)": while recording, if Dual ISO is
