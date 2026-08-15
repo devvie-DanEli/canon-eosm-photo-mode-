@@ -429,7 +429,7 @@ static int handle_slim_rec_touch_block(struct event * event)
         return 0;
     }
 
-    if (RECORDING)
+    if (RECORDING && !PLAY_MODE)
     {
         /* Recording owns the entire touchscreen, independent of Global Draw.
          * Also discard any editor/tap state that began before REC engaged. */

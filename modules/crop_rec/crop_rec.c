@@ -646,6 +646,9 @@ static int slim_handle_arrow_adjust(int mode, int dir)
 /* customize buttons and buttons shortcuts, FIXME: implement these as feature in ML core? */
 static unsigned int photo_keypress_cbr(unsigned int key)
 {
+    if (PLAY_MODE)
+        return 1;
+
     
     if (lv && !gui_menu_shown() && !is_movie_mode())
     {
@@ -7746,6 +7749,10 @@ static unsigned int crop_rec_polling_cbr(unsigned int unused)
 static unsigned int crop_rec_keypress_cbr(unsigned int key)
 {
     extern int kill_canon_gui_mode;
+
+    /* Playback / mlv_play owns SET, arrows, and trash for navigation/delete. */
+    if (PLAY_MODE)
+        return 1;
 
 #ifdef CONFIG_EOSM
     /* The transition controller owns Live View until its post-x5 validation

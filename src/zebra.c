@@ -327,11 +327,17 @@ static int dual_iso_currently_enabled()
 
 static int zebra_killed_by_dual_iso_rec()
 {
+    /* Never kill overlays in PLAY/mlv_play — that left a blank BMP and
+     * hid the navigation/delete OSD after Dual ISO recordings. */
+    if (PLAY_MODE || !lv)
+        return 0;
     return kill_zebra_dual_iso_rec && RECORDING && dual_iso_currently_enabled();
 }
 
 static int focus_peaking_killed_by_dual_iso_rec()
 {
+    if (PLAY_MODE || !lv)
+        return 0;
     return kill_fp_dual_iso_rec && RECORDING && dual_iso_currently_enabled();
 }
 
@@ -2167,7 +2173,8 @@ draw_zebra_and_focus( int Z, int F )
     if (unlikely(!bvram_mirror)) return 0;
 
     /* Rising-edge clear when Dual ISO kill engages so frozen zebra/FP
-     * pixels do not stay stuck on the overlay after updates stop. */
+     * pixels do not stay stuck. Avoid a full-screen bmp_fill — that left a
+     * black BMP layer that hid mlv_play navigation after recording. */
     {
         static int prev_zebra_kill = 0;
         static int prev_fp_kill = 0;
@@ -2176,7 +2183,6 @@ draw_zebra_and_focus( int Z, int F )
         if ((zk && !prev_zebra_kill) || (fk && !prev_fp_kill))
         {
 #ifdef FEATURE_FOCUS_PEAK
-            /* Restore FP dots that were still marked dirty, then drop them. */
             if (dirty_pixels && dirty_pixel_values)
             {
                 for (int i = 0; i < dirty_pixels_num; i++)
@@ -2190,7 +2196,15 @@ draw_zebra_and_focus( int Z, int F )
             dirty_pixels_num = 0;
 #endif
             bvram_mirror_clear();
-            bmp_fill(0, os.x0, os.y0, os.x_max - os.x0, os.y_max - os.y0);
+        }
+        /* Falling edge (REC stop): one more mirror clear so PLAY starts clean. */
+        if ((!zk && prev_zebra_kill) || (!fk && prev_fp_kill))
+        {
+#ifdef FEATURE_FOCUS_PEAK
+            dirty_pixels_num = 0;
+#endif
+            if (!PLAY_MODE)
+                bvram_mirror_clear();
         }
         prev_zebra_kill = zk;
         prev_fp_kill = fk;
